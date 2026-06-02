@@ -141,6 +141,11 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
 /* FIX #6: brighten translations when playing */
 .vc.playing .vc-ms{color:var(--p)}
 .skel{height:110px;border-radius:16px;margin-bottom:12px;background:linear-gradient(90deg,var(--dk) 25%,var(--lt) 50%,var(--dk) 75%);background-size:200%;animation:shim 1.4s infinite}
+.skel-card{border-radius:14px;background:linear-gradient(90deg,var(--dk) 25%,var(--lt) 50%,var(--dk) 75%);background-size:200%;animation:shim 1.4s infinite}
+.skel-line{border-radius:6px;background:linear-gradient(90deg,var(--dk) 25%,var(--lt) 50%,var(--dk) 75%);background-size:200%;animation:shim 1.4s infinite;margin-bottom:6px}
+.ph-skeleton .ph-ar{background:linear-gradient(90deg,var(--dk) 25%,var(--lt) 50%,var(--dk) 75%);background-size:200%;animation:shim 1.4s infinite;border-radius:8px;color:transparent;min-height:36px}
+.ph-skeleton .ph-ms{background:linear-gradient(90deg,var(--dk) 25%,var(--lt) 50%,var(--dk) 75%);background-size:200%;animation:shim 1.4s infinite;border-radius:6px;color:transparent;height:14px;width:80%;margin:6px 0}
+.ph-skeleton .ph-ref{background:linear-gradient(90deg,var(--dk) 25%,var(--lt) 50%,var(--dk) 75%);background-size:200%;animation:shim 1.4s infinite;border-radius:6px;color:transparent;height:12px;width:50%}
 @keyframes shim{0%{background-position:200%}100%{background-position:-200%}}
 .loading-txt{text-align:center;padding:40px;color:var(--m);font-size:14px}
 .err-msg{padding:20px;color:#e88;font-size:13px;text-align:center;line-height:1.7}
@@ -731,7 +736,15 @@ function applyTr(){
 async function loadSurahList(){
   const grid = document.getElementById('surahGrid');
   if(!grid){ console.error('[QC] surahGrid not found'); return; }
-  grid.innerHTML = '<div class="loading-txt" style="grid-column:1/-1">&#x23F3; Memuatkan senarai surah...</div>';
+  // Show skeleton cards while loading
+  const skelCards = Array.from({length:12},(_,i)=>`
+    <div class="sc neu-sm" style="pointer-events:none">
+      <div class="skel-card" style="height:16px;width:24px;margin-bottom:8px"></div>
+      <div class="skel-line" style="height:14px;width:70%"></div>
+      <div class="skel-line" style="height:20px;width:55%;font-size:18px"></div>
+      <div class="skel-line" style="height:11px;width:60%"></div>
+    </div>`).join('');
+  grid.innerHTML = skelCards;
   try{
     const r = await fetch(`${API}/chapters?language=ms`);
     if(!r.ok) throw new Error('HTTP '+r.status);
@@ -864,6 +877,16 @@ async function loadSurah(id, scrollKey){
       ${buildPlayer()}
       ${bism}
       ${cards}`;
+
+    // Update home phone card with this surah + first verse
+    if((verses||[]).length > 0){
+      const v0 = verses[0];
+      const ms0 = strip((v0.translations||[])[0]&&(v0.translations||[])[0].text);
+      const ar0 = v0.text_uthmani||'';
+      const ref0 = v0.verse_key + ' · ' + curSurah.name_simple;
+      updatePhoneCard(curSurah.name_simple, ar0, ms0, ref0);
+      saveLastRead(curSurah.id, curSurah.name_simple, ar0, ms0, ref0);
+    }
 
     // Setup audio
     if(syncMode==='ts') setupAudio(audUrl);
@@ -1154,10 +1177,40 @@ function fmt(s){
 }
 
 // ═══════════════════════════════════════════════
+//  PHONE CARD — sync Sedang Dibaca
+// ═══════════════════════════════════════════════
+function updatePhoneCard(surahName, arText, msText, ref){
+  const nm  = document.getElementById('ph-surah-name');
+  const ar  = document.getElementById('ph-verse-ar');
+  const ms  = document.getElementById('ph-verse-ms');
+  const rf  = document.getElementById('ph-verse-ref');
+  const card = document.querySelector('.ph-inner-card');
+  if(nm) nm.textContent = surahName;
+  if(ar){ ar.textContent = arText; }
+  if(ms){ ms.textContent = msText; }
+  if(rf){ rf.textContent = ref; }
+  if(card) card.classList.remove('ph-skeleton');
+}
+function saveLastRead(surahId, surahName, arText, msText, ref){
+  localStorage.setItem('qc-last-read', JSON.stringify({surahId,surahName,arText,msText,ref,ts:Date.now()}));
+}
+function restoreLastRead(){
+  try{
+    const raw = localStorage.getItem('qc-last-read');
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    if(d && d.surahName) updatePhoneCard(d.surahName, d.arText, d.msText, d.ref);
+  }catch(e){}
+}
+
+// ═══════════════════════════════════════════════
 //  INIT — runs on page load
 // ═══════════════════════════════════════════════
 // Load surah list immediately so it's ready when user opens BACA
 loadSurahList();
+// Restore last read surah on home card
+restoreLastRead();
+
 
 </script>
 
