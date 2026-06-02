@@ -545,6 +545,17 @@ function goView(v){
   if(v!=='reader') document.getElementById('trBar').classList.remove('show');
   if(v==='bookmarks') renderBk();
   if(v==='profile')   renderPf();
+  // FIX: bila masuk reader, pastikan pickerBox visible
+  if(v==='reader'){
+    const vc=document.getElementById('verseContent');
+    const hasContent = vc && vc.innerHTML.trim().length > 0 && !vc.innerHTML.includes('skel');
+    if(!curSurah || !hasContent){
+      document.getElementById('pickerBox').style.display='';
+      document.getElementById('verseBox').style.display='none';
+      document.getElementById('trBar').classList.remove('show');
+      if(!allSurahs.length) loadSurahList();
+    }
+  }
   window.scrollTo(0,0);
 }
 
@@ -666,9 +677,9 @@ async function loadSurahList(){
   try{
     const r=await fetch(`${API}/chapters?language=ms`);
     if(!r.ok) throw new Error('HTTP '+r.status);
-    const d=await r.json(); allSurahs=d.chapters||[]; renderGrid(allSurahs);
+    const d=await r.json(); allSurahs=d.chapters||[]; renderGrid(allSurahs); console.log('[QC] Loaded',allSurahs.length,'surahs');
   }catch(e){
-    document.getElementById('surahGrid').innerHTML=`<div class="err-msg" style="grid-column:1/-1">&#x26A0;&#xFE0F; Tidak dapat memuatkan senarai surah.<br>Sila semak sambungan internet dan cuba semula.</div>`;
+    document.getElementById('surahGrid').innerHTML=`<div class="err-msg" style="grid-column:1/-1;padding:24px;text-align:center">&#x26A0;&#xFE0F; Tidak dapat memuatkan senarai surah.<br><small>${e.message}</small><br><button class="nbtn" style="margin-top:12px;padding:8px 20px" onclick="loadSurahList()">Cuba Semula</button></div>`;
   }
 }
 function renderGrid(list){
@@ -872,8 +883,9 @@ verseAud.addEventListener('ended', ()=>{
 function backPicker(){
   stopAudio();
   document.getElementById('trBar').classList.remove('show');
-  document.getElementById('pickerBox').style.display='block';
+  document.getElementById('pickerBox').style.display='';
   document.getElementById('verseBox').style.display='none';
+  curSurah=null;
   document.getElementById('verseContent').innerHTML='';
   segments=[]; verseAudios=[]; activeVn=null; segIdx=0; vvIdx=0; curSurah=null; readCounted=false;
 }
