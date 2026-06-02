@@ -224,7 +224,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
 @keyframes ambGlow{0%{opacity:.5;transform:scale(1)}100%{opacity:1;transform:scale(1.15)}}
 .ph-notch{width:80px;height:5px;background:rgba(255,255,255,.15);border-radius:3px;position:absolute;top:14px;left:50%;transform:translateX(-50%);backdrop-filter:blur(4px)}
 .ph-hd{text-align:center;margin-top:32px;padding:0 20px;position:relative;z-index:1}
-.ph-hd p{font-size:9px;color:rgba(245,158,11,.8);letter-spacing:3px;text-transform:uppercase;font-weight:700;margin-bottom:6px}:var(--m);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px}
+.ph-hd p{font-size:9px;color:rgba(245,158,11,.8);letter-spacing:3px;text-transform:uppercase;font-weight:700;margin-bottom:6px}
 .ph-hd h3{font-size:17px;font-weight:900;color:#fff;letter-spacing:-.3px}
 .ph-ayah{
   flex:1;display:flex;flex-direction:column;justify-content:center;
@@ -340,7 +340,7 @@ footer p{font-size:12px;color:var(--m)}
   <div>
     <div class="neu-in hero-badge">Sumber Terbuka &middot; Privasi Terjaga</div>
     <h1 class="h1">Baca. Dengar.<br><em>Hafaz.</em></h1>
-    <p class="hero-sub">Teman Al-Quran harian &mdash; terjemahan Melayu &amp; Inggeris, audio-sync petanda langsung per ayat, dan bookmark peribadi.</p>
+    <p class="hero-sub">Teman Al-Quran harian &mdash; terjemahan Melayu, audio-sync petanda langsung per ayat, dan bookmark peribadi.</p>
     <div class="hero-ctas">
       <button class="nbtn cta-p" onclick="goView('reader')">Mula Membaca</button>
       <button class="cta-s" onclick="window.open('https://github.com/Faridexholic92/QuranConnect','_blank')">&#9733; GitHub</button>
@@ -351,13 +351,13 @@ footer p{font-size:12px;color:var(--m)}
       <div class="ph-notch"></div>
       <div class="ph-hd">
         <p>&#x1F50A;&nbsp;&nbsp;Sedang Dibaca</p>
-        <h3>Al-Fatihah</h3>
+        <h3 id="ph-surah-name">Al-Fatihah</h3>
       </div>
       <div class="ph-ayah">
         <div class="ph-inner-card">
-          <div class="ph-ar">&#x628;&#x650;&#x633;&#x652;&#x645;&#x650; &#x627;&#x644;&#x644;&#x64E;&#x651;&#x647;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x652;&#x645;&#x64E;&#x670;&#x646;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x650;&#x64A;&#x645;&#x650;</div>
-          <div class="ph-ms">Dengan nama Allah, Yang Maha Pemurah, lagi Maha Mengasihani.</div>
-          <div class="ph-ref">1:1 &middot; Al-Fatihah</div>
+          <div class="ph-ar" id="ph-verse-ar">&#x628;&#x650;&#x633;&#x652;&#x645;&#x650; &#x627;&#x644;&#x644;&#x64E;&#x651;&#x647;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x652;&#x645;&#x64E;&#x670;&#x646;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x650;&#x64A;&#x645;&#x650;</div>
+          <div class="ph-ms" id="ph-verse-ms">Dengan nama Allah, Yang Maha Pemurah, lagi Maha Mengasihani.</div>
+          <div class="ph-ref" id="ph-verse-ref">1:1 &middot; Al-Fatihah</div>
         </div>
       </div>
       <div class="ph-wave">
@@ -382,8 +382,8 @@ footer p{font-size:12px;color:var(--m)}
   <p class="sec-sub">Setiap ciri direka untuk membantu anda berhubung dengan Al-Quran setiap hari.</p>
   <div class="feat-grid">
     <div class="neu feat-c"><div class="neu-xs feat-ic">&#x1F3A7;</div><h4>Audio Sync Tepat</h4><p>Highlight per ayat dengan dua mod: timestamp API atau verse-by-verse. Auto-fallback jika segment tiada.</p></div>
-    <div class="neu feat-c"><div class="neu-xs feat-ic">&#x1F4D6;</div><h4>Bacaan Bersih</h4><p>Skrip Uthmani dengan terjemahan Melayu &amp; Inggeris setiap ayat dari Quran.com API.</p></div>
-    <div class="neu feat-c"><div class="neu-xs feat-ic">&#x1F512;</div><h4>Keselamatan SHA-256</h4><p>Password di-hash sebelum disimpan. Bookmark tersendiri bagi setiap akaun.</p></div>
+    <div class="neu feat-c"><div class="neu-xs feat-ic">&#x1F4D6;</div><h4>Bacaan Bersih</h4><p>Skrip Uthmani dengan terjemahan Melayu setiap ayat terus dari Quran.com API.</p></div>
+    <div class="neu feat-c"><div class="neu-xs feat-ic">&#x1F512;</div><h4>Keselamatan PBKDF2</h4><p>Password di-hash sebelum disimpan. Bookmark tersendiri bagi setiap akaun.</p></div>
     <div class="neu feat-c"><div class="neu-xs feat-ic">&#x26A1;</div><h4>Cache Pintar</h4><p>Surah yang pernah dibuka disimpan dalam cache untuk muat lebih laju.</p></div>
     <div class="neu feat-c"><div class="neu-xs feat-ic">&#x1F516;</div><h4>Bookmark Peribadi</h4><p>Tandakan mana-mana ayat dan kembali semula dengan satu klik.</p></div>
     <div class="neu feat-c"><div class="neu-xs feat-ic">&#x1F3A8;</div><h4>5 Tema Warna</h4><p>Slate, Rose, Sage, Amber, atau Lavender &mdash; lengkap dengan mod gelap.</p></div>
@@ -722,6 +722,13 @@ function goVerse(k){ const[c]=k.split(':'); goView('reader'); loadSurah(+c,k); }
 //  TRANSLATION TOGGLE
 // ═══════════════════════════════════════════════
 function toggleTr(){ showMs=!showMs; applyTr(); }
+function trOff(){
+  showMs=false; applyTr();
+  const tbMs=document.getElementById('tb-ms');
+  const tbOff=document.getElementById('tb-off');
+  if(tbMs) tbMs.classList.remove('on');
+  if(tbOff) tbOff.classList.add('on');
+}
 function applyTr(){
   const tbMs  = document.getElementById('tb-ms');
   const tbOff = document.getElementById('tb-off');
@@ -1125,7 +1132,7 @@ function stopRaf(){
 function onTick(){
   if(!aud.duration||isNaN(aud.duration)) return;
   const pct=(aud.currentTime/aud.duration)*100;
-  const pf=document.getElementById('progFill'); if(pf) pf.style.transform=`scaleX(${pct/100})`;
+  const pf=document.getElementById('progFill'); if(pf) pf.style.width=pct+'%';
   const tn=document.getElementById('tNow'); if(tn) tn.textContent=fmt(aud.currentTime);
   if(syncMode!=='ts'||!segments.length||!curSurah) return;
   const ms=aud.currentTime*1000;
