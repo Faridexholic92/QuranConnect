@@ -456,13 +456,14 @@ footer p{font-size:12px;color:var(--m)}
   </div>
 </div>
 
+
 <script>
 'use strict';
 
 // ═══════════════════════════════════════════════
 //  CONFIG
 // ═══════════════════════════════════════════════
-const API      = 'https://api.quran.com/api/v4';
+const API = 'https://api.quran.com/api/v4';
 const RECITERS = [
   {id:7,  name:'Mishary Alafasy'},
   {id:1,  name:'AbdulBaset (Murattal)'},
@@ -470,93 +471,131 @@ const RECITERS = [
   {id:2,  name:'Hudhaify'},
   {id:6,  name:'Ibrahim Al-Akhdar'}
 ];
+const CDN = 'https://audio.qurancdn.com/';
 
 // ═══════════════════════════════════════════════
-//  SECURITY: SHA-256 + XSS escape
+//  STATE
 // ═══════════════════════════════════════════════
-// PBKDF2 dengan salt rawak (100,000 iterations) — tahan rainbow table
+let allSurahs   = [];
+let curSurah    = null;
+let curRecId    = 7;
+let showMs      = true;
+let segments    = [];
+let verseAudios = [];
+let syncMode    = 'vv';
+let activeVn    = null;
+let segIdx      = 0;
+let vvIdx       = 0;
+let isPlaying   = false;
+let rafId       = null;
+let readCounted = false;
+let lastScroll  = 0;
+const surahCache = {};
+const aud = new Audio();
+
+// ═══════════════════════════════════════════════
+//  SECURITY
+// ═══════════════════════════════════════════════
 function genSalt(){
   return Array.from(crypto.getRandomValues(new Uint8Array(16)))
     .map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 async function pbkdf2Hash(password, salt){
-  const enc=new TextEncoder();
-  const key=await crypto.subtle.importKey(
-    'raw',enc.encode(password),'PBKDF2',false,['deriveBits']
-  );
-  const bits=await crypto.subtle.deriveBits(
-    {name:'PBKDF2',salt:enc.encode(salt),iterations:100000,hash:'SHA-256'},
-    key,256
-  );
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw',enc.encode(password),'PBKDF2',false,['deriveBits']);
+  const bits = await crypto.subtle.deriveBits(
+    {name:'PBKDF2',salt:enc.encode(salt),iterations:100000,hash:'SHA-256'},key,256);
   return Array.from(new Uint8Array(bits)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;'); }
-const strip=s=>(s||'').replace(/<[^>]+>/g,'').trim();
-
-// ═══════════════════════════════════════════════
-//  STATE
-// ═══════════════════════════════════════════════
-let allSurahs  = [];
-let curSurah   = null;
-let curRecId   = 7;
-let showMs     = true;
-// FIX6: showEn removed (Malay only)
-let segments   = [];         // [{vn,from,to}] for timestamp mode
-let verseAudios= [];         // [{vn,url}] for verse-by-verse mode
-let syncMode   = 'ts';       // 'ts' = timestamp | 'vv' = verse-by-verse
-let activeVn   = null;
-let segIdx     = 0;
-let vvIdx      = 0;          // current verse index in vv mode
-const aud      = new Audio();
-let isPlaying  = false;
-let tickTimer  = null;
-let readCounted= false;
-const surahCache  = {};
-const cacheAudio  = {};
-let lastScroll    = 0;
-function preloadVerse(url){ if(!url||cacheAudio[url])return; const a=new Audio(); a.preload="auto"; a.src=url; cacheAudio[url]=a; }
+const strip = s => (s||'').replace(/<[^>]+>/g,'').trim();
 
 // ═══════════════════════════════════════════════
 //  THEME
 // ═══════════════════════════════════════════════
 (function(){
-  const t=localStorage.getItem('qc-t')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');
-  const c=localStorage.getItem('qc-c')||'slate';
+  const t = localStorage.getItem('qc-t') || (matchMedia('(prefers-color-scheme:dark)').matches ? 'dark' : 'light');
+  const c = localStorage.getItem('qc-c') || 'slate';
   applyTheme(t); applyColor(c);
 }());
-function applyTheme(t){ document.documentElement.setAttribute('data-theme',t); }
+function applyTheme(t){ document.documentElement.setAttribute('data-theme',t); localStorage.setItem('qc-t',t); }
 function applyColor(c){
   document.documentElement.setAttribute('data-color',c);
   document.querySelectorAll('.dot').forEach(d=>d.classList.remove('on'));
-  const map={slate:'d-sl',rose:'d-ro',sage:'d-sa',amber:'d-am',lavender:'d-la'};
-  const el=document.querySelector('.'+map[c]); if(el) el.classList.add('on');
+  const map = {slate:'d-sl',rose:'d-ro',sage:'d-sa',amber:'d-am',lavender:'d-la'};
+  const el = document.querySelector('.'+map[c]); if(el) el.classList.add('on');
+  localStorage.setItem('qc-c',c);
 }
-function toggleTheme(){ const n=document.documentElement.getAttribute('data-theme')==='light'?'dark':'light'; applyTheme(n); localStorage.setItem('qc-t',n); }
-function setColor(c){ applyColor(c); localStorage.setItem('qc-c',c); }
+function toggleTheme(){
+  const cur = document.documentElement.getAttribute('data-theme');
+  applyTheme(cur==='light'?'dark':'light');
+}
+function setColor(c){ applyColor(c); }
 
 // ═══════════════════════════════════════════════
 //  VIEWS
 // ═══════════════════════════════════════════════
 function goView(v){
+  // Hide all views, deactivate all nav buttons
   document.querySelectorAll('.view').forEach(e=>e.classList.remove('on'));
   document.querySelectorAll('.bn').forEach(e=>e.classList.remove('on'));
-  document.getElementById('view-'+v).classList.add('on');
-  const bn=document.getElementById('bn-'+v); if(bn) bn.classList.add('on');
-  if(v!=='reader') document.getElementById('trBar').classList.remove('show');
+
+  // Show target view
+  const viewEl = document.getElementById('view-'+v);
+  if(!viewEl){ console.error('[QC] View not found: view-'+v); return; }
+  viewEl.classList.add('on');
+
+  // Activate nav button
+  const bn = document.getElementById('bn-'+v);
+  if(bn) bn.classList.add('on');
+
+  // Translation bar — only show in reader
+  const trBar = document.getElementById('trBar');
+  if(trBar) trBar.classList.toggle('show', v==='reader');
+
+  // Per-view logic
+  if(v==='reader'){
+    // Always show picker (surah list) when entering reader
+    // unless a surah is currently loaded and verse content exists
+    const vc = document.getElementById('verseContent');
+    const hasVerses = vc && vc.querySelector('.vc');
+    if(!curSurah || !hasVerses){
+      showPicker();
+    }
+    // Load surah list if not yet loaded
+    if(!allSurahs.length) loadSurahList();
+  }
   if(v==='bookmarks') renderBk();
   if(v==='profile')   renderPf();
-  // FIX: bila masuk reader, pastikan pickerBox visible
-  if(v==='reader'){
-    const vc=document.getElementById('verseContent');
-    const hasContent = vc && vc.innerHTML.trim().length > 0 && !vc.innerHTML.includes('skel');
-    if(!curSurah || !hasContent){
-      document.getElementById('pickerBox').style.display='';
-      document.getElementById('verseBox').style.display='none';
-      document.getElementById('trBar').classList.remove('show');
-      if(!allSurahs.length) loadSurahList();
-    }
-  }
+
   window.scrollTo(0,0);
+}
+
+function showPicker(){
+  const pb = document.getElementById('pickerBox');
+  const vb = document.getElementById('verseBox');
+  if(pb) pb.style.display = '';
+  if(vb) vb.style.display = 'none';
+  const trBar = document.getElementById('trBar');
+  if(trBar) trBar.classList.remove('show');
+}
+
+function showVerseBox(){
+  const pb = document.getElementById('pickerBox');
+  const vb = document.getElementById('verseBox');
+  if(pb) pb.style.display = 'none';
+  if(vb) vb.style.display = 'block';
+}
+
+function backPicker(){
+  stopAudio();
+  curSurah = null;
+  const vc = document.getElementById('verseContent');
+  if(vc) vc.innerHTML = '';
+  segments=[]; verseAudios=[]; activeVn=null; segIdx=0; vvIdx=0;
+  showPicker();
+  const trBar = document.getElementById('trBar');
+  if(trBar) trBar.classList.remove('show');
 }
 
 // ═══════════════════════════════════════════════
@@ -567,18 +606,25 @@ const saveUsers = u=>localStorage.setItem('qc-users',JSON.stringify(u));
 const setSess   = (id,sig)=>localStorage.setItem('qc-sess',JSON.stringify({id,sig}));
 const clrSess   = ()=>localStorage.removeItem('qc-sess');
 function curUser(){
-  try{ const raw=localStorage.getItem('qc-sess'); if(!raw) return null;
-    const {id,sig}=JSON.parse(raw);
-    const u=getUsers().find(u=>u.id===id);
+  try{
+    const raw = localStorage.getItem('qc-sess'); if(!raw) return null;
+    const {id,sig} = JSON.parse(raw);
+    const u = getUsers().find(u=>u.id===id);
     if(!u||u.pwSig!==sig) return null; return u;
-  }catch{return null;}
+  }catch{ return null; }
 }
-function openOv(id){ const el=document.getElementById(id); if(!el||el.classList.contains('show')) return; el.classList.add('show'); }
+function openOv(id){ const el=document.getElementById(id); if(el) el.classList.add('show'); }
 function closeOv(id){ const el=document.getElementById(id); if(el) el.classList.remove('show'); }
 function switchOv(a,b){ closeOv(a); openOv(b); }
-document.querySelectorAll('.overlay').forEach(el=>el.addEventListener('click',e=>{ if(e.target===el) el.classList.remove('show'); }));
+document.querySelectorAll('.overlay').forEach(el=>{
+  el.addEventListener('click', e=>{ if(e.target===el) el.classList.remove('show'); });
+});
 function clickAva(){ curUser()?goView('profile'):openOv('ovLogin'); }
-function refreshAva(){ const u=curUser(); document.getElementById('avaBtn').innerHTML=u?u.name.charAt(0).toUpperCase():'&#x1F464;'; }
+function refreshAva(){
+  const u = curUser();
+  const btn = document.getElementById('avaBtn');
+  if(btn) btn.innerHTML = u ? u.name.charAt(0).toUpperCase() : '&#x1F464;';
+}
 async function doReg(){
   const nm=document.getElementById('rNm').value.trim();
   const id=document.getElementById('rId').value.trim().toLowerCase().replace(/[^a-z0-9_]/g,'');
@@ -602,8 +648,7 @@ async function doLogin(){
   if(!id||!pw){err.textContent='Sila isi ID dan kata laluan.';return;}
   const u=getUsers().find(u=>u.id===id);
   if(!u){err.textContent='ID tidak ditemui.';return;}
-  // use stored salt for PBKDF2
-  const salt=u.salt||u.id;  // fallback to id for old SHA-256 accounts
+  const salt=u.salt||u.id;
   const pwHash=await pbkdf2Hash(pw,salt);
   if(u.pwHash!==pwHash){err.textContent='Kata laluan tidak sah.';return;}
   setSess(id,pwHash); closeOv('ovLogin'); refreshAva(); goView('profile');
@@ -611,7 +656,11 @@ async function doLogin(){
 function doLogout(){ clrSess(); refreshAva(); goView('home'); }
 function renderPf(){
   const u=curUser(); const wrap=document.getElementById('pfContent');
-  if(!u){ wrap.innerHTML='<div class="loading-txt">Sila log masuk.<br><button class="nbtn" style="margin-top:12px;padding:12px 28px;font-weight:700" onclick="openOv(\'ovLogin\')">Log Masuk</button></div>'; return; }
+  if(!wrap) return;
+  if(!u){
+    wrap.innerHTML='<div class="loading-txt">Sila log masuk.<br><button class="nbtn" style="margin-top:12px;padding:12px 28px" onclick="openOv(\'ovLogin\')">Log Masuk</button></div>';
+    return;
+  }
   const bks=getBk();
   const joined=new Date(u.joined).toLocaleDateString('ms-MY',{year:'numeric',month:'long',day:'numeric'});
   wrap.innerHTML=`<div class="pf-card neu">
@@ -631,27 +680,33 @@ function renderPf(){
 refreshAva();
 
 // ═══════════════════════════════════════════════
-//  BOOKMARKS per-user
+//  BOOKMARKS
 // ═══════════════════════════════════════════════
 function getBkKey(){ const u=curUser(); return u?('qc-bk-'+u.id):'qc-bk-guest'; }
 const getBk  = ()=>JSON.parse(localStorage.getItem(getBkKey())||'[]');
 const saveBk = b=>localStorage.setItem(getBkKey(),JSON.stringify(b));
 const hasBk  = k=>getBk().some(b=>b.k===k);
 function toggleBk(btn){
-  const k=btn.dataset.k,ar=btn.dataset.ar,ms=btn.dataset.ms,en=btn.dataset.en;
+  const k=btn.dataset.k, ar=btn.dataset.ar, ms=btn.dataset.ms;
   let bks=getBk(); const i=bks.findIndex(b=>b.k===k);
-  if(i>=0) bks.splice(i,1); else bks.unshift({k,ar,ms,en,t:Date.now()});
+  if(i>=0) bks.splice(i,1); else bks.unshift({k,ar,ms,t:Date.now()});
   saveBk(bks); const active=hasBk(k);
-  btn.innerHTML=active?'&#x1F516;':'&#x2606;'; btn.classList.toggle('bkon',active);
+  btn.innerHTML=active?'&#x1F516;':'&#x2606;';
+  btn.classList.toggle('bkon',active);
 }
 function renderBk(){
-  const bks=getBk(); const el=document.getElementById('bkList');
-  if(!bks.length){ el.innerHTML='<div class="bk-empty"><div class="bk-ei">&#x1F516;</div><p class="bk-ep">Tiada penanda lagi.<br>Tandakan ayat semasa membaca.</p></div>'; return; }
+  const bks=getBk(); const el=document.getElementById('bkList'); if(!el) return;
+  if(!bks.length){
+    el.innerHTML='<div class="bk-empty"><div class="bk-ei">&#x1F516;</div><p class="bk-ep">Tiada penanda lagi.<br>Tandakan ayat semasa membaca.</p></div>';
+    return;
+  }
   el.innerHTML=bks.map((b,i)=>`
     <div class="bk-card neu-sm" onclick="goVerse('${esc(b.k)}')">
       <div class="bk-ref">${esc(b.k)}</div>
-      <div><div class="bk-ar">${esc(b.ar).substring(0,55)}${b.ar.length>55?'&hellip;':''}</div>
-      <div class="bk-tr">${esc(b.ms).substring(0,90)}${b.ms.length>90?'&hellip;':''}</div></div>
+      <div>
+        <div class="bk-ar">${esc(b.ar).substring(0,55)}${b.ar.length>55?'&hellip;':''}</div>
+        <div class="bk-tr">${esc(b.ms||'').substring(0,90)}${(b.ms||'').length>90?'&hellip;':''}</div>
+      </div>
       <button class="bk-del" onclick="event.stopPropagation();delBk(${i})">&#x2715;</button>
     </div>`).join('');
 }
@@ -662,11 +717,11 @@ function goVerse(k){ const[c]=k.split(':'); goView('reader'); loadSurah(+c,k); }
 //  TRANSLATION TOGGLE
 // ═══════════════════════════════════════════════
 function toggleTr(){ showMs=!showMs; applyTr(); }
-function trOff(){ showMs=false; applyTr(); }
 function applyTr(){
-  // FIX6: Melayu only
-  document.getElementById('tb-ms').classList.toggle('on',showMs);
-  document.getElementById('tb-off').classList.toggle('on',!showMs);
+  const tbMs  = document.getElementById('tb-ms');
+  const tbOff = document.getElementById('tb-off');
+  if(tbMs)  tbMs.classList.toggle('on', showMs);
+  if(tbOff) tbOff.classList.toggle('on', !showMs);
   document.querySelectorAll('.vc-ms').forEach(e=>e.style.display=showMs?'':'none');
 }
 
@@ -674,119 +729,135 @@ function applyTr(){
 //  SURAH LIST
 // ═══════════════════════════════════════════════
 async function loadSurahList(){
+  const grid = document.getElementById('surahGrid');
+  if(!grid){ console.error('[QC] surahGrid not found'); return; }
+  grid.innerHTML = '<div class="loading-txt" style="grid-column:1/-1">&#x23F3; Memuatkan senarai surah...</div>';
   try{
-    const r=await fetch(`${API}/chapters?language=ms`);
+    const r = await fetch(`${API}/chapters?language=ms`);
     if(!r.ok) throw new Error('HTTP '+r.status);
-    const d=await r.json(); allSurahs=d.chapters||[]; renderGrid(allSurahs); console.log('[QC] Loaded',allSurahs.length,'surahs');
+    const d = await r.json();
+    allSurahs = d.chapters || [];
+    console.log('[QC] Loaded', allSurahs.length, 'surahs');
+    renderGrid(allSurahs);
   }catch(e){
-    document.getElementById('surahGrid').innerHTML=`<div class="err-msg" style="grid-column:1/-1;padding:24px;text-align:center">&#x26A0;&#xFE0F; Tidak dapat memuatkan senarai surah.<br><small>${e.message}</small><br><button class="nbtn" style="margin-top:12px;padding:8px 20px" onclick="loadSurahList()">Cuba Semula</button></div>`;
+    console.error('[QC] loadSurahList error:', e);
+    grid.innerHTML = `
+      <div style="grid-column:1/-1;padding:32px;text-align:center">
+        <div style="font-size:32px;margin-bottom:8px">&#x26A0;&#xFE0F;</div>
+        <div style="font-weight:600;margin-bottom:4px">Tidak dapat memuatkan senarai surah</div>
+        <div style="font-size:12px;opacity:.6;margin-bottom:16px">${esc(e.message)}</div>
+        <button class="nbtn" onclick="loadSurahList()" style="padding:10px 24px">&#x1F504; Cuba Semula</button>
+      </div>`;
   }
 }
 function renderGrid(list){
-  if(!list.length){document.getElementById('surahGrid').innerHTML='<div class="loading-txt" style="grid-column:1/-1">Tiada hasil.</div>';return;}
-  document.getElementById('surahGrid').innerHTML=list.map(s=>`
+  const grid = document.getElementById('surahGrid'); if(!grid) return;
+  if(!list.length){
+    grid.innerHTML='<div class="loading-txt" style="grid-column:1/-1">Tiada hasil.</div>'; return;
+  }
+  grid.innerHTML = list.map(s=>`
     <div class="sc neu-sm" onclick="loadSurah(${s.id})">
       <div class="sc-no">${s.id}</div>
       <div class="sc-nm">${esc(s.name_simple)}</div>
-      <div class="sc-ar">${s.name_arabic}</div>
+      <div class="sc-ar">${s.name_arabic||''}</div>
       <div class="sc-meta">${s.verses_count} ayat &middot; ${s.revelation_place==='makkah'?'Makkiyyah':'Madaniyyah'}</div>
     </div>`).join('');
 }
 function filterSurahs(q){
   const low=q.toLowerCase().trim(); const num=parseInt(low,10);
-  renderGrid(low?allSurahs.filter(s=>s.name_simple.toLowerCase().includes(low)||s.name_arabic.includes(q)||(!isNaN(num)&&s.id===num)):allSurahs);
+  renderGrid(low ? allSurahs.filter(s=>
+    s.name_simple.toLowerCase().includes(low)||
+    (s.name_arabic||'').includes(q)||
+    (!isNaN(num)&&s.id===num)
+  ) : allSurahs);
 }
 
 // ═══════════════════════════════════════════════
 //  LOAD SURAH
 // ═══════════════════════════════════════════════
 async function loadSurah(id, scrollKey){
-  curSurah=allSurahs.find(s=>s.id===id)||{id,name_simple:'Surah '+id,name_arabic:'',verses_count:'?',revelation_place:'makkah'};
-  document.getElementById('pickerBox').style.display='none';
-  document.getElementById('verseBox').style.display='block';
-  document.getElementById('trBar').classList.add('show');
+  // Find surah info
+  curSurah = allSurahs.find(s=>s.id===id) || {id,name_simple:'Surah '+id,name_arabic:'',verses_count:'?',revelation_place:'makkah'};
+
+  // Show verse box with skeleton
+  showVerseBox();
+  const trBar = document.getElementById('trBar');
+  if(trBar) trBar.classList.add('show');
   stopAudio(); activeVn=null; segIdx=0; vvIdx=0; readCounted=false;
-  document.getElementById('verseContent').innerHTML='<div class="skel"></div>'.repeat(5);
+  const vc = document.getElementById('verseContent');
+  if(vc) vc.innerHTML = '<div class="skel"></div>'.repeat(5);
 
   try{
     let verses, audUrl;
     if(surahCache[id]){
-      ({verses,audUrl}=surahCache[id]);
-      segments=surahCache[id].segments||[];
-      verseAudios=surahCache[id].verseAudios||[];
+      ({verses,audUrl} = surahCache[id]);
+      segments    = surahCache[id].segments    || [];
+      verseAudios = surahCache[id].verseAudios || [];
     } else {
       const [vRes, aUrl, rawSegs] = await Promise.all([
         fetch(`${API}/verses/by_chapter/${id}?translations=33&fields=text_uthmani&per_page=300`)
-          .then(r=>{ if(!r.ok) throw new Error('verse '+r.status); return r.json(); }),
-        fetchAudioUrl(curRecId,id),
-        fetchSegs(curRecId,id)
+          .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }),
+        fetchAudioUrl(curRecId, id),
+        fetchSegs(curRecId, id)
       ]);
-      verses=vRes.verses||[];
-      audUrl=aUrl;
-      segments=rawSegs.segs;
-      verseAudios=rawSegs.verseAudios;
-      surahCache[id]={verses,audUrl,segments,verseAudios};
+      verses      = vRes.verses || [];
+      audUrl      = aUrl;
+      segments    = rawSegs.segs;
+      verseAudios = rawSegs.verseAudios;
+      surahCache[id] = {verses, audUrl, segments, verseAudios};
     }
 
-    // FIX #14: decide sync mode
-    // - 'ts' = timestamp mode (chapter audio + segment timestamps)
-    // - 'vv' = verse-by-verse mode (individual verse audio, 100% accurate)
+    // Decide sync mode
     if(segments.length>0 && audUrl){
-      syncMode='ts';
-      console.log('[QC] Sync mode: TIMESTAMP |', segments.length, 'segments');
+      syncMode = 'ts';
+      console.log('[QC] Sync: TIMESTAMP |', segments.length, 'segments');
     } else if(verseAudios.length>0){
-      syncMode='vv';
-      console.log('[QC] Sync mode: VERSE-BY-VERSE |', verseAudios.length, 'URLs');
+      syncMode = 'vv';
+      console.log('[QC] Sync: VERSE-BY-VERSE |', verseAudios.length, 'URLs');
     } else {
-      syncMode='audio';
-      console.log('[QC] Sync mode: AUDIO-ONLY (no data)');
+      syncMode = 'audio';
+      console.log('[QC] Sync: AUDIO-ONLY');
     }
 
-    const bism=(id!==1&&id!==9)
-      ?'<div class="bism neu-in">&#x628;&#x650;&#x633;&#x652;&#x645;&#x650; &#x627;&#x644;&#x644;&#x64E;&#x651;&#x647;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x652;&#x645;&#x64E;&#x670;&#x646;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x650;&#x64A;&#x645;&#x650;</div>'
-      :'';
+    // Bismillah
+    const bism = (id!==1&&id!==9)
+      ? '<div class="bism neu-in">&#x628;&#x650;&#x633;&#x652;&#x645;&#x650; &#x627;&#x644;&#x644;&#x64E;&#x651;&#x647;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x652;&#x645;&#x64E;&#x670;&#x646;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x650;&#x64A;&#x645;&#x650;</div>'
+      : '';
 
-    const cards=(verses||[]).map(v=>{
-      const trArr=v.translations||[];
-      const msText=strip(trArr[0]&&trArr[0].text);
-      // FIX6: English removed
-      const vcId='vc-'+id+'-'+v.verse_number;
-      const bkKey=v.verse_key;
-      const bkd=hasBk(bkKey);
-      const safeAr=(v.text_uthmani||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-      const safeMs=msText.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-
+    // Build verse cards
+    const cards = (verses||[]).map(v=>{
+      const msText = strip((v.translations||[])[0]&&(v.translations||[])[0].text);
+      const vcId   = 'vc-'+id+'-'+v.verse_number;
+      const bkKey  = v.verse_key;
+      const bkd    = hasBk(bkKey);
+      const safeAr = (v.text_uthmani||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      const safeMs = msText.replace(/"/g,'&quot;').replace(/'/g,'&#39;');
       return `<div class="vc neu" id="${vcId}">
         <div class="vc-top">
-          <div class="vc-left">
-            <span class="vc-key">${esc(bkKey)}</span>
-            <span class="pdot"></span>
-          </div>
+          <div class="vc-left"><span class="vc-key">${esc(bkKey)}</span><span class="pdot"></span></div>
           <div class="vc-acts">
             <button class="vbtn${bkd?' bkon':''}" onclick="toggleBk(this)"
-              data-k="${bkKey}" data-ar="${safeAr}" data-ms="${safeMs}" data-en="">${bkd?'&#x1F516;':'&#x2606;'}</button>
+              data-k="${bkKey}" data-ar="${safeAr}" data-ms="${safeMs}">${bkd?'&#x1F516;':'&#x2606;'}</button>
           </div>
         </div>
         <div class="vc-ar">${v.text_uthmani||''}</div>
-        <div class="vc-ms"${showMs?'':' style="display:none"'}>${msText?esc(msText):'<em style="color:var(--m)">Terjemahan Melayu tidak tersedia</em>'}</div>
+        <div class="vc-ms"${showMs?'':' style="display:none"'}>${msText?esc(msText):'<em style="color:var(--m)">Terjemahan tidak tersedia</em>'}</div>
         <div class="vc-bottom">
-          <div class="vc-bottom-left">
-            <button class="vc-play-btn" id="vpb-${bkKey}" onclick="playVerse('${bkKey}',${v.verse_number},this)">
-              <svg viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11"/></svg>
-              <span class="btn-lbl">${esc(bkKey)}</span>
-            </button>
-          </div>
-          <span style="font-size:11px;opacity:.45;">${v.verse_number}/${verses.length}</span>
+          <button class="vc-play-btn" id="vpb-${bkKey}" onclick="playVerse('${bkKey}',${v.verse_number},this)">
+            <svg viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11"/></svg>
+            <span class="btn-lbl">${esc(bkKey)}</span>
+          </button>
+          <span style="font-size:11px;opacity:.45">${v.verse_number}/${verses.length}</span>
         </div>
       </div>`;
     }).join('');
 
-    document.getElementById('verseContent').innerHTML=`
+    if(vc) vc.innerHTML = `
       <div class="rd-hd">
         <div class="rd-nm">${esc(curSurah.name_simple)}</div>
-        <div class="rd-ar">${curSurah.name_arabic}</div>
+        <div class="rd-ar">${curSurah.name_arabic||''}</div>
         <div class="rd-tags">
-          <span class="rd-tag neu-in-sm">${verses?verses.length:0} Ayat</span>
+          <span class="rd-tag neu-in-sm">${(verses||[]).length} Ayat</span>
           <span class="rd-tag neu-in-sm">${curSurah.revelation_place==='makkah'?'Makkiyyah':'Madaniyyah'}</span>
         </div>
       </div>
@@ -794,104 +865,76 @@ async function loadSurah(id, scrollKey){
       ${bism}
       ${cards}`;
 
+    // Setup audio
     if(syncMode==='ts') setupAudio(audUrl);
-    else if(syncMode==='vv'){ setupVV(); }
+    else if(syncMode==='vv') setupVV();
     else if(audUrl) setupAudio(audUrl);
-    else { const pb=document.getElementById('playBtn'); if(pb){pb.disabled=true;pb.title='Audio tidak tersedia';} }
+    else {
+      const pb = document.getElementById('playBtn');
+      if(pb){ pb.disabled=true; pb.title='Audio tidak tersedia'; }
+    }
 
+    // Scroll to specific verse
     if(scrollKey){
       setTimeout(()=>{
-        const el=document.getElementById('vc-'+scrollKey.replace(':','-'));
+        const el = document.getElementById('vc-'+scrollKey.replace(':','-'));
         if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
-      },400);
+      }, 400);
     }
 
   }catch(e){
-    document.getElementById('verseContent').innerHTML=`<div class="err-msg">&#x26A0;&#xFE0F; Tidak dapat memuatkan surah ini.<br><small style="opacity:.7">${e.message||e}</small><br>Sila semak sambungan internet dan cuba semula.</div>`;
-    console.error('[QC] loadSurah error:', e.message||e, e.stack||'');
+    console.error('[QC] loadSurah error:', e);
+    if(vc) vc.innerHTML = `<div class="err-msg">&#x26A0;&#xFE0F; Tidak dapat memuatkan surah ini.<br><small>${esc(e.message||String(e))}</small><br><button class="nbtn" style="margin-top:12px;padding:8px 20px" onclick="loadSurah(${id})">Cuba Semula</button></div>`;
   }
 }
 
-
 // ═══════════════════════════════════════════════
-//  PER-VERSE PLAY
+//  PER-VERSE PLAY BUTTON
 // ═══════════════════════════════════════════════
 let activeVerseBtn = null;
-let verseAud = new Audio();
-verseAud.preload = 'auto';
+const verseAud = new Audio();
 
 async function playVerse(key, vn, btn){
-  // Reset previous active button
-  if(activeVerseBtn && activeVerseBtn !== btn){
-    activeVerseBtn.classList.remove('active');
-    activeVerseBtn.innerHTML = `<svg viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11"/></svg><span class="btn-lbl">${activeVerseBtn.dataset.key||''}</span>`;
-  }
-
-  // If same button & playing, pause
-  if(activeVerseBtn === btn && !verseAud.paused){
+  // If same button playing → pause
+  if(activeVerseBtn===btn && !verseAud.paused){
     verseAud.pause();
     btn.classList.remove('active');
-    btn.innerHTML = `<svg viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11"/></svg><span class="btn-lbl">${key}</span>`;
-    activeVerseBtn = null;
-    return;
+    btn.innerHTML=`<svg viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11"/></svg><span class="btn-lbl">${key}</span>`;
+    activeVerseBtn=null; return;
   }
-
-  // Stop main player
+  // Reset previous button
+  if(activeVerseBtn && activeVerseBtn!==btn){
+    activeVerseBtn.classList.remove('active');
+    activeVerseBtn.innerHTML=`<svg viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11"/></svg><span class="btn-lbl">${activeVerseBtn.dataset.key||''}</span>`;
+  }
   stopAudio();
-
-  // Build verse audio URL (Quran.com CDN pattern)
-  const chapId = curSurah ? curSurah.id : parseInt(key.split(':')[0]);
-  const verseNum = String(vn).padStart(3,'0');
-  const chapNum  = String(chapId).padStart(3,'0');
-  const recId    = curRecId || 7;
-
-  // Try preloaded cache first, else construct CDN URL
   const found = verseAudios.find(v=>v.vn===vn);
-    if(!found){ console.warn('[QC] No URL for ayat',vn); btn.classList.remove('active'); btn.innerHTML='▶'; activeVerseBtn=null; return; }
-  const url = found.url;
-  console.log('[QC] playVerse URL:',url);
-  btn.dataset.key = key;
+  if(!found){ console.warn('[QC] No URL for ayat',vn); return; }
+  btn.dataset.key=key;
   btn.classList.add('active');
-  btn.innerHTML = `<svg viewBox="0 0 12 12"><rect x="2" y="1" width="3" height="10"/><rect x="7" y="1" width="3" height="10"/></svg><span class="btn-lbl">Berhenti</span>`;
-  activeVerseBtn = btn;
-
-  // Highlight verse
+  btn.innerHTML=`<svg viewBox="0 0 12 12"><rect x="2" y="1" width="3" height="10"/><rect x="7" y="1" width="3" height="10"/></svg><span class="btn-lbl">Berhenti</span>`;
+  activeVerseBtn=btn;
   highlightVerse(vn);
-
-  verseAud.src = url;
-  verseAud.load();
-  try{
-    await verseAud.play();
-  }catch(e){
-    console.warn('[QC] verse play error:', e);
-    // Fallback: use main player segment seek
+  verseAud.src=found.url; verseAud.load();
+  try{ await verseAud.play(); }
+  catch(e){
+    console.warn('[QC] verse play error:',e);
     btn.classList.remove('active');
-    btn.innerHTML = `<svg viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11"/></svg><span class="btn-lbl">${key}</span>`;
-    activeVerseBtn = null;
+    btn.innerHTML=`<svg viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11"/></svg><span class="btn-lbl">${key}</span>`;
+    activeVerseBtn=null;
   }
 }
-
-verseAud.addEventListener('ended', ()=>{
+verseAud.addEventListener('ended',()=>{
   if(activeVerseBtn){
     activeVerseBtn.classList.remove('active');
-    activeVerseBtn.innerHTML = `<svg viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11"/></svg><span class="btn-lbl">${activeVerseBtn.dataset.key||''}</span>`;
-    activeVerseBtn = null;
+    activeVerseBtn.innerHTML=`<svg viewBox="0 0 12 12"><polygon points="2,1 11,6 2,11"/></svg><span class="btn-lbl">${activeVerseBtn.dataset.key||''}</span>`;
+    activeVerseBtn=null;
   }
   clearHL();
 });
 
-function backPicker(){
-  stopAudio();
-  document.getElementById('trBar').classList.remove('show');
-  document.getElementById('pickerBox').style.display='';
-  document.getElementById('verseBox').style.display='none';
-  curSurah=null;
-  document.getElementById('verseContent').innerHTML='';
-  segments=[]; verseAudios=[]; activeVn=null; segIdx=0; vvIdx=0; curSurah=null; readCounted=false;
-}
-
 // ═══════════════════════════════════════════════
-//  PLAYER HTML — FIX #12: now-verse indicator
+//  PLAYER HTML
 // ═══════════════════════════════════════════════
 function buildPlayer(){
   const modeLabel = syncMode==='ts'
@@ -899,9 +942,10 @@ function buildPlayer(){
     : syncMode==='vv'
     ? '<span class="sync-mode-badge sync-vv">&#x1F4DC; Ayat demi Ayat</span>'
     : '<span class="sync-mode-badge">&#x1F3B5; Audio Sahaja</span>';
+  const surahName = curSurah ? esc(curSurah.name_simple) : '';
   return `<div class="player neu" id="playerEl">
     <div class="pl-top">
-      <span class="pl-title">&#x1F3A7; ${esc(curSurah.name_simple)}</span>
+      <span class="pl-title">&#x1F3A7; ${surahName}</span>
       <div class="pl-rec"><select onchange="changeRec(+this.value)">${RECITERS.map(r=>`<option value="${r.id}"${r.id===curRecId?' selected':''}>${esc(r.name)}</option>`).join('')}</select></div>
       <div class="pl-ctrls">
         <button class="pc neu-xs" onclick="seekBy(-10)" title="-10s">&#x21BA;</button>
@@ -926,126 +970,91 @@ function buildPlayer(){
 // ═══════════════════════════════════════════════
 //  FETCH AUDIO
 // ═══════════════════════════════════════════════
-async function fetchAudioUrl(recId,chapId){
+async function fetchAudioUrl(recId, chapId){
   try{
-    const r=await fetch(`${API}/chapter_recitations/${recId}/${chapId}`);
+    const r = await fetch(`${API}/chapter_recitations/${recId}/${chapId}`);
     if(!r.ok) return null;
-    const d=await r.json();
-    return d.audio_file&&d.audio_file.audio_url?d.audio_file.audio_url:null;
-  }catch{return null;}
+    const d = await r.json();
+    return d.audio_file && d.audio_file.audio_url ? d.audio_file.audio_url : null;
+  }catch{ return null; }
 }
 
-// FIX #1+#2: debug logs + return both segments AND verseAudios
-async function fetchSegs(recId,chapId){
+async function fetchSegs(recId, chapId){
   try{
-    const r=await fetch(`${API}/recitations/${recId}/by_chapter/${chapId}`);
+    const r = await fetch(`${API}/recitations/${recId}/by_chapter/${chapId}`);
     if(!r.ok) return {segs:[],verseAudios:[]};
-    const d=await r.json();
-    // FIX #2: log raw response to help debug
-    console.log('[QC] Segment API raw (first 3):', JSON.stringify((d.audio_files||[]).slice(0,3),null,2));
+    const d = await r.json();
+    const files = d.audio_files || [];
+    console.log('[QC] Segment API (first 2):', JSON.stringify(files.slice(0,2)));
 
-    const files=d.audio_files||[];
-
-    // Parse timestamp segments (for ts mode)
-    const segs=files
+    // Timestamp segments (ts mode)
+    const segs = files
       .map(s=>({
-        vn:  parseInt((s.verse_key||'').split(':')[1],10),
-        from:Number(s.timestamp_from),
-        to:  Number(s.timestamp_to),
-        url: s.url||null
+        vn:   parseInt((s.verse_key||'').split(':')[1], 10),
+        from: Number(s.timestamp_from),
+        to:   Number(s.timestamp_to),
       }))
-      .filter(s=>!isNaN(s.vn)&&!isNaN(s.from)&&s.from>=0);
+      .filter(s=>!isNaN(s.vn) && !isNaN(s.from) && s.from>=0);
+    console.log('[QC] Segments:', segs.length);
 
-    // FIX #3: debug log
-    console.log('[QC] Segments parsed:', segs.length);
-    if(segs.length===0) console.warn('[QC] Segments KOSONG — akan guna verse-by-verse fallback');
-
-    // Parse verse audio URLs (for vv mode fallback)
-    const verseAudios=files
+    // Verse audio URLs (vv mode fallback)
+    const vas = files
       .map(s=>{
-        let u=s.url||null;
-        if(u){
-          if(u.startsWith('http')){}                          // already absolute
-          else if(u.startsWith('/')) u='https://audio.qurancdn.com'+u;  // slash-relative
-          else u='https://audio.qurancdn.com/'+u;             // bare relative e.g. Alafasy/mp3/...
+        let u = s.url || null;
+        if(u && !u.startsWith('http')){
+          u = CDN + (u.startsWith('/') ? u.slice(1) : u);
         }
-        return {vn:parseInt((s.verse_key||'').split(':')[1],10),url:u};
+        return { vn: parseInt((s.verse_key||'').split(':')[1], 10), url: u };
       })
-      .filter(s=>!isNaN(s.vn)&&s.url);
-
-    console.log('[QC] Verse audio URLs:', verseAudios.length);
-    verseAudios.forEach(v=>preloadVerse(v.url));
-    verseAudios.forEach(v=>preloadVerse(v.url)); // FIX2
-    return {segs,verseAudios};
+      .filter(s=>!isNaN(s.vn) && s.url);
+    console.log('[QC] Verse audios:', vas.length);
+    return {segs, verseAudios: vas};
   }catch(e){
-    console.error('[QC] fetchSegs error:',e);
-    return {segs:[],verseAudios:[]};
+    console.error('[QC] fetchSegs error:', e);
+    return {segs:[], verseAudios:[]};
   }
 }
 
 // ═══════════════════════════════════════════════
-//  AUDIO EVENTS (init ONCE)
+//  AUDIO ENGINE
 // ═══════════════════════════════════════════════
-function onAudPlay(){
-  isPlaying=true;
-  const b=document.getElementById('playBtn'); if(b) b.innerHTML='&#x23F8;&#xFE0F;';
-  // FIX5: timeupdate is browser-optimised, no manual interval
-  if(!readCounted){ readCounted=true; incRead(); }
-}
-function onAudStop(){
-  isPlaying=false; stopRaf();
-  const b=document.getElementById('playBtn'); if(b) b.innerHTML='&#x25B6;&#xFE0F;';
-}
-aud.addEventListener('play',onAudPlay);
-aud.addEventListener('pause',onAudStop);
-aud.addEventListener('loadedmetadata',()=>{ const el=document.getElementById('tDur'); if(el) el.textContent=fmt(aud.duration); });
-// ended: in ts mode stop, in vv mode play next verse
-aud.addEventListener('ended',()=>{ onAudStop(); if(syncMode==='vv') playNextVerse(); });
-// RAF-based sync (smoother than timeupdate)
-// rafId declared below
-
-function incRead(){
-  const u=curUser(); if(!u) return;
-  const us=getUsers(); const idx=us.findIndex(x=>x.id===u.id);
-  if(idx>=0){us[idx].reads=(us[idx].reads||0)+1;saveUsers(us);}
-}
-
-function setupAudio(url){ aud.src=url; aud.load(); }
-
-// ═══════════════════════════════════════════════
-//  VERSE-BY-VERSE MODE (FIX #14)
-// ═══════════════════════════════════════════════
-function setupVV(){ vvIdx=0; } // just reset index, audio loaded on play
+function setupAudio(url){ if(url){ aud.src=url; aud.load(); } }
+function setupVV(){ vvIdx=0; }
 
 function startVV(){
   if(!verseAudios.length) return;
   vvIdx=0; playVerseAt(0);
 }
-
 function playVerseAt(idx){
   if(idx>=verseAudios.length){ clearHL(); updateNowVerse(null); return; }
   const va=verseAudios[idx];
   aud.src=va.url; aud.load();
-  aud.play().catch(e=>console.warn('[QC] VV play error:',e));
-  highlightVerse(va.vn);
-  updateNowVerse(va.vn);
-  console.log('[QC] VV playing verse:', va.vn);
+  aud.play().catch(e=>console.warn('[QC] VV play:',e));
+  highlightVerse(va.vn); updateNowVerse(va.vn);
 }
+function playNextVerse(){ vvIdx++; playVerseAt(vvIdx); }
 
-function playNextVerse(){
-  vvIdx++;
-  playVerseAt(vvIdx);
-}
+aud.addEventListener('play', ()=>{
+  isPlaying=true;
+  const b=document.getElementById('playBtn'); if(b) b.innerHTML='&#x23F8;&#xFE0F;';
+  startRaf();
+  if(!readCounted){ readCounted=true; incRead(); }
+});
+aud.addEventListener('pause', ()=>{
+  isPlaying=false; stopRaf();
+  const b=document.getElementById('playBtn'); if(b) b.innerHTML='&#x25B6;&#xFE0F;';
+});
+aud.addEventListener('ended', ()=>{
+  isPlaying=false; stopRaf();
+  const b=document.getElementById('playBtn'); if(b) b.innerHTML='&#x25B6;&#xFE0F;';
+  if(syncMode==='vv') playNextVerse();
+});
+aud.addEventListener('loadedmetadata', ()=>{
+  const el=document.getElementById('tDur'); if(el) el.textContent=fmt(aud.duration);
+});
 
-// ═══════════════════════════════════════════════
-//  PLAYER CONTROLS
-// ═══════════════════════════════════════════════
 function togglePlay(){
-  if(syncMode==='vv'){
-    if(isPlaying) aud.pause();
-    else startVV();
-    return;
-  }
+  if(syncMode==='vv'){ isPlaying?aud.pause():startVV(); return; }
   if(!aud.src) return;
   isPlaying?aud.pause():aud.play();
 }
@@ -1062,58 +1071,49 @@ function seekClick(e){
   aud.currentTime=((e.clientX-r.left)/r.width)*aud.duration;
 }
 
-// ═══════════════════════════════════════════════
-//  TICK (timestamp mode only)
-// ═══════════════════════════════════════════════
-function isVisible(el){ const r=el.getBoundingClientRect(); return r.top>=80&&r.bottom<=(window.innerHeight-80); }
+async function changeRec(id){
+  curRecId=id; if(!curSurah) return;
+  stopAudio(); segIdx=0; vvIdx=0;
+  const[url,rawSegs]=await Promise.all([fetchAudioUrl(id,curSurah.id),fetchSegs(id,curSurah.id)]);
+  segments=rawSegs.segs; verseAudios=rawSegs.verseAudios;
+  if(surahCache[curSurah.id]){
+    surahCache[curSurah.id].segments=segments;
+    surahCache[curSurah.id].verseAudios=verseAudios;
+  }
+  if(segments.length>0&&url){ syncMode='ts'; setupAudio(url); }
+  else if(verseAudios.length>0){ syncMode='vv'; setupVV(); }
+  else syncMode='audio';
+}
 
-
+// ═══════════════════════════════════════════════
+//  RAF SYNC (requestAnimationFrame)
+// ═══════════════════════════════════════════════
 function startRaf(){
-  if(rafId) cancelAnimationFrame(rafId);
-  function tick(){ onTick(); if(isPlaying) rafId=requestAnimationFrame(tick); }
-  rafId = requestAnimationFrame(tick);
+  stopRaf();
+  function tick(){
+    onTick();
+    if(isPlaying) rafId=requestAnimationFrame(tick);
+  }
+  rafId=requestAnimationFrame(tick);
 }
 function stopRaf(){
-  if(rafId){ cancelAnimationFrame(rafId); rafId=null; }
+  if(rafId!==null){ cancelAnimationFrame(rafId); rafId=null; }
 }
 function onTick(){
-  if(!aud.duration) return;
-  // progress bar
+  if(!aud.duration||isNaN(aud.duration)) return;
   const pct=(aud.currentTime/aud.duration)*100;
-  const f=document.getElementById('progFill'); if(f) f.style.width=pct+'%';
-  const n=document.getElementById('tNow'); if(n) n.textContent=fmt(aud.currentTime);
-
-  // FIX #3: warn if no segments
-  if(!segments.length){
-    console.warn('[QC] onTick: Tiada segment audio — sync tidak aktif');
-    return;
-  }
-  if(!curSurah) return;
-
+  const pf=document.getElementById('progFill'); if(pf) pf.style.transform=`scaleX(${pct/100})`;
+  const tn=document.getElementById('tNow'); if(tn) tn.textContent=fmt(aud.currentTime);
+  if(syncMode!=='ts'||!segments.length||!curSurah) return;
   const ms=aud.currentTime*1000;
-  // FIX #6: fast index tracker
   while(segIdx<segments.length-1 && ms>segments[segIdx].to) segIdx++;
   while(segIdx>0 && ms<segments[segIdx].from) segIdx--;
-
   const seg=segments[segIdx];
   const vn=(seg&&ms>=seg.from&&ms<seg.to)?seg.vn:null;
-
   if(vn===activeVn) return;
-  clearHL();
-  activeVn=vn;
-
-  if(vn){
-    // FIX #10: debug ID match
-    const elId='vc-'+curSurah.id+'-'+vn;
-    const el=document.getElementById(elId);
-    console.log('[QC] ACTIVE ayat:', curSurah.id, vn, '| el:', el?'OK':'NULL (ID mismatch!)');
-    if(el){
-      highlightVerse(vn);
-      updateNowVerse(vn);
-    }
-  } else {
-    updateNowVerse(null);
-  }
+  clearHL(); activeVn=vn;
+  if(vn){ highlightVerse(vn); updateNowVerse(vn); }
+  else updateNowVerse(null);
 }
 
 // ═══════════════════════════════════════════════
@@ -1121,49 +1121,45 @@ function onTick(){
 // ═══════════════════════════════════════════════
 function highlightVerse(vn){
   if(!curSurah) return;
-  const el=document.getElementById('vc-'+curSurah.id+'-'+vn);
-  if(!el) return;
+  const el=document.getElementById('vc-'+curSurah.id+'-'+vn); if(!el) return;
   el.classList.add('playing');
-  // FIX4+5: throttled scroll
   if(!isVisible(el)){
     const now=Date.now();
     if(now-lastScroll>2500){ lastScroll=now; el.scrollIntoView({behavior:'smooth',block:'center'}); }
   }
 }
-
 function clearHL(){
-  if(activeVn&&curSurah){
+  if(activeVn!==null&&curSurah){
     const el=document.getElementById('vc-'+curSurah.id+'-'+activeVn);
     if(el) el.classList.remove('playing');
   }
   activeVn=null;
 }
-
-// FIX #12: update now-verse indicator in player
 function updateNowVerse(vn){
   const el=document.getElementById('nowVerseTxt');
   if(el) el.textContent='Ayat: '+(vn||'\u2014');
 }
-
-async function changeRec(id){
-  curRecId=id; if(!curSurah) return;
-  stopAudio(); segIdx=0; vvIdx=0;
-  const[url,rawSegs]=await Promise.all([fetchAudioUrl(id,curSurah.id),fetchSegs(id,curSurah.id)]);
-  segments=rawSegs.segs; verseAudios=rawSegs.verseAudios;
-  if(surahCache[curSurah.id]){ surahCache[curSurah.id].segments=segments; surahCache[curSurah.id].verseAudios=verseAudios; }
-  if(segments.length>0&&url){ syncMode='ts'; setupAudio(url); }
-  // FIX1: no vv fallback — audio-only if no timestamps
-  else syncMode='none';
-  // refresh player label
-  const pi=document.getElementById('playerEl'); if(pi) pi.innerHTML=buildPlayer().replace('<div class="player neu" id="playerEl">','').replace(/<\/div>$/,'');
+function isVisible(el){
+  const r=el.getBoundingClientRect();
+  return r.top>=80&&r.bottom<=(window.innerHeight-80);
+}
+function incRead(){
+  const u=curUser(); if(!u) return;
+  const us=getUsers(); const idx=us.findIndex(x=>x.id===u.id);
+  if(idx>=0){us[idx].reads=(us[idx].reads||0)+1; saveUsers(us);}
+}
+function fmt(s){
+  if(!s||isNaN(s)) return '0:00';
+  return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
 }
 
-function fmt(s){ if(!s||isNaN(s)) return'0:00'; return Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0'); }
-
 // ═══════════════════════════════════════════════
-//  INIT
+//  INIT — runs on page load
 // ═══════════════════════════════════════════════
+// Load surah list immediately so it's ready when user opens BACA
 loadSurahList();
+
 </script>
+
 </body>
 </html>
