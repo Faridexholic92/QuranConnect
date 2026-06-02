@@ -87,7 +87,7 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
 .sync-vv{background:rgba(255,165,0,.15);color:#e8a030}
 .bism{text-align:center;font-size:20px;color:var(--p);padding:14px;margin-bottom:14px;direction:rtl;line-height:1.8}
 /* VERSE CARD */
-.vc{padding:18px 20px;margin-bottom:14px;will-change:background-color;transition:background .2s,border-left .2s;position:relative}
+.vc{padding:22px 24px;margin-bottom:16px;will-change:background-color,border-left;transition:background .25s,border-left .25s;position:relative;border-left:3px solid transparent;border-radius:18px}
 .vc-play-btn{
   display:inline-flex;align-items:center;gap:6px;
   background:var(--ac);color:#fff;border:none;border-radius:50px;
@@ -103,10 +103,15 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
 .vc-bottom{display:flex;align-items:center;justify-content:space-between;margin-top:12px;padding-top:10px;border-top:1px solid rgba(128,128,128,.12);}
 .vc-bottom-left{display:flex;gap:8px;align-items:center;}
 /* FIX #4: stronger playing highlight */
-/* FIX3+7: lightweight GPU-friendly highlight */
+/* Premium playing highlight */
 .vc.playing{
   border-left:4px solid var(--ac);
-  background:rgba(76,175,80,.05);
+  background:linear-gradient(135deg,rgba(76,175,80,.06) 0%,rgba(76,175,80,.02) 100%);
+}
+.vc.playing .vc-key{
+  background:rgba(76,175,80,.15);
+  color:var(--ac);
+  border-color:rgba(76,175,80,.3);
 }
 .vc-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}
 .vc-left{display:flex;align-items:center;gap:8px}
@@ -128,10 +133,10 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
 .vc-acts{display:flex;gap:5px}
 .vbtn{width:26px;height:26px;border-radius:50%;border:none;cursor:pointer;font-size:12px;display:flex;align-items:center;justify-content:center;background:var(--sf);box-shadow:2px 2px 5px var(--dk),-2px -2px 5px var(--lt);transition:all .15s}
 .vbtn.bkon{color:#e88080}
-.vc-ar{font-size:22px;line-height:2.1;color:var(--p);direction:rtl;text-align:right;margin-bottom:10px;font-family:'Scheherazade New','Traditional Arabic','Arial Unicode MS',serif;transition:color .3s}
+.vc-ar{font-size:24px;line-height:2.1;color:var(--p);direction:rtl;text-align:right;margin-bottom:14px;font-family:'Scheherazade New','Traditional Arabic','Arial Unicode MS',serif;transition:color .3s}
 /* FIX #5: colour Arabic text when playing */
 .vc.playing .vc-ar{color:var(--ac);font-weight:700}
-.vc-ms{font-size:13px;line-height:1.8;color:var(--s);margin-bottom:5px;transition:color .3s}
+.vc-ms{font-size:14px;line-height:1.85;color:var(--s);margin-bottom:8px;transition:color .3s;font-style:italic}
 .vc-en{font-size:12px;line-height:1.75;color:var(--m);font-style:italic;transition:color .3s}
 /* FIX #6: brighten translations when playing */
 .vc.playing .vc-ms{color:var(--p)}
@@ -195,17 +200,81 @@ nav{display:flex;align-items:center;justify-content:space-between;padding:14px 2
 .cta-p{padding:14px 32px;font-size:14px;font-weight:700}
 .cta-s{background:none;border:none;cursor:pointer;font-size:14px;color:var(--s);font-family:inherit;display:flex;align-items:center;gap:5px;transition:color .2s}
 .cta-s:hover{color:var(--p)}
-.phone-wrap{display:flex;justify-content:center}
-.phone{width:246px;height:480px;border-radius:42px;padding:20px 15px 15px;display:flex;flex-direction:column;gap:10px;position:relative}
-.ph-notch{width:66px;height:5px;background:var(--m);border-radius:3px;position:absolute;top:12px;left:50%;transform:translateX(-50%);opacity:.3}
-.ph-hd{text-align:center;margin-top:8px}
-.ph-hd p{font-size:10px;color:var(--m);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px}
-.ph-hd h3{font-size:14px;font-weight:700}
-.ph-ayah{padding:12px;text-align:center}
-.ph-ar{font-size:19px;line-height:1.9;color:var(--ac);direction:rtl;margin-bottom:7px;font-weight:700}
-.ph-ms{font-size:10px;color:var(--s);line-height:1.6;margin-bottom:3px}
-.ph-en{font-size:9px;color:var(--m);font-style:italic;line-height:1.5}
-.ph-ref{font-size:9px;color:var(--m);margin-top:5px;font-weight:700;letter-spacing:.5px}
+.phone-wrap{display:flex;justify-content:center;align-items:center}
+.phone{
+  width:260px;height:500px;border-radius:44px;
+  padding:0;display:flex;flex-direction:column;
+  position:relative;overflow:hidden;
+  background:linear-gradient(160deg,#1a1a2e 0%,#16213e 40%,#0f3460 100%);
+  box-shadow:0 32px 80px rgba(0,0,0,.6),0 0 0 1px rgba(255,255,255,.06),inset 0 1px 0 rgba(255,255,255,.1);
+}
+/* Animated ambient glow behind card */
+.phone::before{
+  content:'';
+  position:absolute;top:-40%;left:10%;width:80%;height:80%;
+  background:radial-gradient(ellipse,rgba(245,158,11,.18) 0%,transparent 70%);
+  animation:ambGlow 4s ease-in-out infinite alternate;
+  pointer-events:none;
+}
+@keyframes ambGlow{0%{opacity:.5;transform:scale(1)}100%{opacity:1;transform:scale(1.15)}}
+.ph-notch{width:80px;height:5px;background:rgba(255,255,255,.15);border-radius:3px;position:absolute;top:14px;left:50%;transform:translateX(-50%);backdrop-filter:blur(4px)}
+.ph-hd{text-align:center;margin-top:32px;padding:0 20px;position:relative;z-index:1}
+.ph-hd p{font-size:9px;color:rgba(245,158,11,.8);letter-spacing:3px;text-transform:uppercase;font-weight:700;margin-bottom:6px}:var(--m);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px}
+.ph-hd h3{font-size:17px;font-weight:900;color:#fff;letter-spacing:-.3px}
+.ph-ayah{
+  flex:1;display:flex;flex-direction:column;justify-content:center;
+  padding:28px 24px;text-align:center;position:relative;z-index:1;
+}
+/* Glassmorphism inner card */
+.ph-inner-card{
+  background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:24px;padding:28px 20px 24px;
+  backdrop-filter:blur(12px);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 8px 32px rgba(0,0,0,.3);
+}
+.ph-ar{
+  font-size:21px;line-height:2.0;color:#f5a623;
+  direction:rtl;margin-bottom:16px;font-weight:700;
+  font-family:'Scheherazade New','Traditional Arabic',serif;
+  text-shadow:0 0 30px rgba(245,158,11,.4),0 2px 4px rgba(0,0,0,.5);
+}
+.ph-ms{font-size:11px;color:rgba(255,255,255,.75);line-height:1.7;margin-bottom:12px;font-style:italic}
+.ph-en{font-size:9px;color:rgba(255,255,255,.4);line-height:1.5}
+/* Verse badge */
+.ph-ref{
+  display:inline-flex;align-items:center;gap:6px;
+  font-size:10px;font-weight:800;letter-spacing:1px;
+  color:rgba(245,158,11,.9);
+  background:rgba(245,158,11,.12);
+  border:1px solid rgba(245,158,11,.2);
+  border-radius:20px;padding:4px 12px;margin-top:14px;
+}
+/* Bottom waveform decoration */
+.ph-wave{
+  position:absolute;bottom:0;left:0;right:0;height:90px;
+  background:linear-gradient(to top,rgba(245,158,11,.08),transparent);
+  display:flex;align-items:flex-end;justify-content:center;gap:3px;padding:0 24px 20px;
+}
+.ph-bar{
+  background:rgba(245,158,11,.4);
+  border-radius:2px;width:4px;
+  animation:barDance 1.2s ease-in-out infinite alternate;
+}
+.ph-bar:nth-child(1){height:8px;animation-delay:0s}
+.ph-bar:nth-child(2){height:18px;animation-delay:.1s}
+.ph-bar:nth-child(3){height:30px;animation-delay:.2s}
+.ph-bar:nth-child(4){height:22px;animation-delay:.15s}
+.ph-bar:nth-child(5){height:38px;animation-delay:.05s}
+.ph-bar:nth-child(6){height:26px;animation-delay:.25s}
+.ph-bar:nth-child(7){height:14px;animation-delay:.1s}
+.ph-bar:nth-child(8){height:32px;animation-delay:.3s}
+.ph-bar:nth-child(9){height:20px;animation-delay:.12s}
+.ph-bar:nth-child(10){height:10px;animation-delay:.2s}
+@keyframes barDance{
+  0%{transform:scaleY(.4);opacity:.5}
+  100%{transform:scaleY(1);opacity:1}
+}
 .stats-wrap{max-width:1060px;margin:0 auto;padding:0 28px 52px}
 .stats-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .sc-stat{padding:32px 20px;text-align:center}
@@ -273,13 +342,24 @@ footer p{font-size:12px;color:var(--m)}
     </div>
   </div>
   <div class="phone-wrap">
-    <div class="phone neu">
+    <div class="phone">
       <div class="ph-notch"></div>
-      <div class="ph-hd"><p>Sedang Dibaca</p><h3>Al-Fatihah</h3></div>
-      <div class="neu-in ph-ayah">
-        <div class="ph-ar">&#x628;&#x650;&#x633;&#x652;&#x645;&#x650; &#x627;&#x644;&#x644;&#x64E;&#x651;&#x647;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x652;&#x645;&#x64E;&#x670;&#x646;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x650;&#x64A;&#x645;&#x650;</div>
-        <div class="ph-ms">Dengan nama Allah, Yang Maha Pemurah, lagi Maha Mengasihani.</div>
-        <div class="ph-ref">1:1 &middot; Al-Fatihah</div>
+      <div class="ph-hd">
+        <p>&#x1F50A;&nbsp;&nbsp;Sedang Dibaca</p>
+        <h3>Al-Fatihah</h3>
+      </div>
+      <div class="ph-ayah">
+        <div class="ph-inner-card">
+          <div class="ph-ar">&#x628;&#x650;&#x633;&#x652;&#x645;&#x650; &#x627;&#x644;&#x644;&#x64E;&#x651;&#x647;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x652;&#x645;&#x64E;&#x670;&#x646;&#x650; &#x627;&#x644;&#x631;&#x64E;&#x651;&#x62D;&#x650;&#x64A;&#x645;&#x650;</div>
+          <div class="ph-ms">Dengan nama Allah, Yang Maha Pemurah, lagi Maha Mengasihani.</div>
+          <div class="ph-ref">1:1 &middot; Al-Fatihah</div>
+        </div>
+      </div>
+      <div class="ph-wave">
+        <div class="ph-bar"></div><div class="ph-bar"></div><div class="ph-bar"></div>
+        <div class="ph-bar"></div><div class="ph-bar"></div><div class="ph-bar"></div>
+        <div class="ph-bar"></div><div class="ph-bar"></div><div class="ph-bar"></div>
+        <div class="ph-bar"></div>
       </div>
     </div>
   </div>
