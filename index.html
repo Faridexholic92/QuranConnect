@@ -981,7 +981,7 @@ function onAudPlay(){
   if(!readCounted){ readCounted=true; incRead(); }
 }
 function onAudStop(){
-  isPlaying=false;
+  isPlaying=false; stopRaf();
   const b=document.getElementById('playBtn'); if(b) b.innerHTML='&#x25B6;&#xFE0F;';
 }
 aud.addEventListener('play',onAudPlay);
@@ -989,8 +989,8 @@ aud.addEventListener('pause',onAudStop);
 aud.addEventListener('loadedmetadata',()=>{ const el=document.getElementById('tDur'); if(el) el.textContent=fmt(aud.duration); });
 // ended: in ts mode stop, in vv mode play next verse
 aud.addEventListener('ended',()=>{ onAudStop(); if(syncMode==='vv') playNextVerse(); });
-// FIX5: timeupdate replaces setInterval
-aud.addEventListener('timeupdate',onTick);
+// RAF-based sync (smoother than timeupdate)
+// rafId declared below
 
 function incRead(){
   const u=curUser(); if(!u) return;
@@ -1038,7 +1038,7 @@ function togglePlay(){
   isPlaying?aud.pause():aud.play();
 }
 function stopAudio(){
-  aud.pause(); aud.src=''; isPlaying=false; clearHL(); updateNowVerse(null);
+  aud.pause(); aud.src=''; isPlaying=false; stopRaf(); clearHL(); updateNowVerse(null);
 }
 function seekBy(s){
   if(!aud.src||!aud.duration) return;
@@ -1055,6 +1055,15 @@ function seekClick(e){
 // ═══════════════════════════════════════════════
 function isVisible(el){ const r=el.getBoundingClientRect(); return r.top>=80&&r.bottom<=(window.innerHeight-80); }
 
+
+function startRaf(){
+  if(rafId) cancelAnimationFrame(rafId);
+  function tick(){ onTick(); if(isPlaying) rafId=requestAnimationFrame(tick); }
+  rafId = requestAnimationFrame(tick);
+}
+function stopRaf(){
+  if(rafId){ cancelAnimationFrame(rafId); rafId=null; }
+}
 function onTick(){
   if(!aud.duration) return;
   // progress bar
